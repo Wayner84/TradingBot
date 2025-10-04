@@ -1,0 +1,65 @@
+data:
+  source: yfinance
+  symbols: ["AAPL"]
+  timeframe: "1h"
+  start: "2019-01-01"
+  end: null
+  adjust: true
+  cache_dir: "data/cache"
+  quality_thresholds:
+    max_missing_pct: 0.2
+    max_duplicate_pct: 0.1
+    max_gap_minutes: 15
+
+features:
+  indicators:
+    - ema: { period: 12 }
+    - ema: { period: 26 }
+    - rsi: { period: 14 }
+    - atr: { period: 14 }
+    - macd: { fast: 12, slow: 26, signal: 9 }
+  lags: [1,2,3,5,10]
+  returns_horizon: 3
+
+labeling:
+  method: "fixed_horizon_return"
+  horizon: 3
+  threshold: 0.0
+  triple_barrier: null
+
+execution:
+  order_type: "market"
+  fee_perc: 0.0005
+  slippage_bps: 1.0
+  latency_ms: 50
+
+risk:
+  max_leverage: 1.0
+  vol_target: 0.15
+  max_position_per_symbol: 1.0
+  stop_loss_atr: 2.0
+  take_profit_atr: 3.0
+  daily_loss_limit_perc: 0.03
+
+backtest:
+  walkforward:
+    train_window_days: 365
+    test_window_days: 90
+    step_days: 90
+  metrics: [cagr, sharpe, sortino, max_dd, calmar, win_rate, expectancy, profit_factor]
+  seed: 42
+  report_dir: "reports"
+
+monitoring:
+  drift:
+    baseline_generation: "GEN_001"   # used as reference
+    psi_threshold_warn: 0.1
+    psi_threshold_alert: 0.25
+  plots:
+    save_png: true
+    save_html: true
+
+tuning:
+  search: "random"     # or "bayes" if installed
+  n_iters: 30
+  early_stop_rounds: 5
