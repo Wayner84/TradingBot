@@ -1,0 +1,25 @@
+simulation_warning: "SIMULATION ONLY: No live trading"
+timezone: "UTC"
+random_seed: 42
+storage:
+  data_dir: data
+  cache_dir: cache
+  models_dir: models
+  backtests_dir: backtests
+  reports_dir: reports
+quality:
+  max_missing_pct: 0.05
+  max_duplicate_pct: 0.01
+  max_gap_minutes: 240
+  max_outlier_pct: 0.05
+drift:
+  max_psi: 0.25
+  max_ks: 0.2
+training:
+  default_cv: blocked
+  n_splits: 5
+  horizon_bars: 24
+risk:
+  max_leverage: 3.0
+  daily_loss_limit: 0.05
+  circuit_breaker_pct: 0.1
