@@ -7,7 +7,12 @@ from typing import Optional
 import pandas as pd
 import typer
 
-from app.backtest.engine import generation_kpi_table, run_walk_forward
+from app.backtest import (
+    BacktraderConfig,
+    generation_kpi_table,
+    run_backtrader_strategy,
+    run_walk_forward,
+)
 from app.core.config import settings
 from app.core.registry import registry
 from app.data.yfinance_adapter import fetch_ohlcv
@@ -24,6 +29,33 @@ app = typer.Typer(help="Simulation only - no live trading")
 
 def _load_price_data(path: Path) -> pd.DataFrame:
     return pd.read_parquet(path)
+
+
+def _filter_price_frame(
+    frame: pd.DataFrame,
+    symbol: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> pd.DataFrame:
+    price = frame.copy()
+    price["timestamp"] = pd.to_datetime(price["timestamp"], utc=False)
+    if symbol:
+        if "symbol" not in price.columns:
+            raise typer.BadParameter(
+                "Symbol filtering requested but dataset lacks a 'symbol' column"
+            )
+        mask = price["symbol"].str.upper() == symbol.upper()
+        price = price.loc[mask]
+    elif "symbol" in price.columns and price["symbol"].nunique() > 1:
+        default_symbol = price["symbol"].iloc[0]
+        price = price.loc[price["symbol"] == default_symbol]
+    if start:
+        price = price.loc[price["timestamp"] >= pd.to_datetime(start)]
+    if end:
+        price = price.loc[price["timestamp"] <= pd.to_datetime(end)]
+    if price.empty:
+        raise typer.BadParameter("No price data available after applying filters")
+    return price.sort_values("timestamp").reset_index(drop=True)
 
 
 @app.command("data.pull")
@@ -91,11 +123,15 @@ def train(
     n_iters: int = 10,
     dataset_id: Optional[str] = None,
     model: str = "gradient_boosting",
+    symbol: Optional[str] = None,
+    train_start: Optional[str] = None,
+    train_end: Optional[str] = None,
 ) -> None:
     dataset_id = dataset_id or next(iter(registry.list_datasets()), None)
     if dataset_id is None:
         raise typer.Exit("No dataset available")
     price = _load_price_data(settings.storage.data_dir / f"{dataset_id}.parquet")
+    price = _filter_price_frame(price, symbol=symbol, start=train_start, end=train_end)
     features, _ = build_feature_matrix(price, settings.storage.cache_dir)
     labels, _ = fixed_horizon_returns(price, settings.training.horizon_bars)
     features, labels = features.align(labels, join="inner", axis=0)
@@ -108,19 +144,32 @@ def backtest(
     strategy: str = "ema_crossover",
     generation: str = "GEN_001",
     dataset_id: Optional[str] = None,
+    engine: str = "walkforward",
+    symbol: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
 ) -> None:
     dataset_id = dataset_id or next(iter(registry.list_datasets()), None)
     if dataset_id is None:
         raise typer.Exit("No dataset available")
     price = _load_price_data(settings.storage.data_dir / f"{dataset_id}.parquet")
-    features, _ = build_feature_matrix(price, settings.storage.cache_dir)
-    returns = price.set_index("timestamp")["close"].pct_change().dropna()
-    if strategy == "ema_crossover":
-        signals = ema_crossover.generate_signals(features)
+    price = _filter_price_frame(price, symbol=symbol, start=start, end=end)
+    engine = engine.lower()
+    base_dir = settings.storage.backtests_dir / generation
+    backtest_dir = base_dir / engine
+    if engine == "walkforward":
+        features, _ = build_feature_matrix(price, settings.storage.cache_dir)
+        returns = price.set_index("timestamp")["close"].pct_change().dropna()
+        if strategy == "ema_crossover":
+            signals = ema_crossover.generate_signals(features)
+        else:
+            signals = features["returns_1"].apply(lambda x: 1 if x > 0 else -1)
+        metrics = run_walk_forward(signals, returns, generation, backtest_dir)
+    elif engine == "backtrader":
+        config = BacktraderConfig()
+        metrics = run_backtrader_strategy(price, strategy, generation, backtest_dir, config=config)
     else:
-        signals = features["returns_1"].apply(lambda x: 1 if x > 0 else -1)
-    backtest_dir = settings.storage.backtests_dir / generation
-    metrics = run_walk_forward(signals, returns, generation, backtest_dir)
+        raise typer.BadParameter("Unsupported backtest engine. Use 'walkforward' or 'backtrader'.")
     generation_kpi_table([metrics], backtest_dir / "kpis.csv")
     typer.echo(f"Backtest metrics saved: {metrics}")
 
