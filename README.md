@@ -49,6 +49,9 @@ app/
 ## Demo Sequence
 
 ```bash
+# 0) One-shot pipeline across multiple symbols
+tradebot pipeline.run --symbols AAPL,MSFT,GOOG --timeframe 1h --start 2020-01-01 --generation GEN_001
+
 # 1) Pull historical data (mocked when offline)
 python -m app.cli data.pull --symbols AAPL --timeframe 1h --start 2020-01-01
 

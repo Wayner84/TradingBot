@@ -54,7 +54,11 @@ def run_walk_forward(
 ) -> BacktestMetrics:
     ensure_directory(output_dir)
     signals = signals.reindex(returns.index).fillna(0)
-    strategy_returns = signals.shift().fillna(0) * returns
+    if isinstance(signals.index, pd.MultiIndex) and "symbol" in signals.index.names:
+        shifted = signals.groupby(level="symbol").shift().fillna(0)
+    else:
+        shifted = signals.shift().fillna(0)
+    strategy_returns = shifted * returns
     equity_curve = (1 + strategy_returns).cumprod()
     metrics = performance_metrics(equity_curve)
 
